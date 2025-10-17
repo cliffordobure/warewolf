@@ -28,6 +28,9 @@ const io = initializeSocket(server);
 // Make io accessible in routes
 app.set('io', io);
 
+// Trust proxy - required for deployment behind reverse proxies (Render, Heroku, AWS, etc.)
+app.set('trust proxy', true);
+
 // Security middleware
 app.use(helmet());
 
