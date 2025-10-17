@@ -67,6 +67,27 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Shop health check (simple endpoint for mobile app testing)
+app.get('/shop-health', async (req, res) => {
+  try {
+    const ShopItem = require('./models/ShopItem');
+    const itemCount = await ShopItem.countDocuments({ is_active: true });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Shop is ready',
+      item_count: itemCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Shop error',
+      error: error.message
+    });
+  }
+});
+
 // API routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/user', userRoutes);
