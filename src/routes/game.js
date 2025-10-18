@@ -43,6 +43,7 @@ router.get('/:gameId', gameController.getGame);
 router.post('/:gameId/join', joinGameValidation, validate, gameController.joinGame);
 router.post('/:gameId/leave', gameController.leaveGame);
 router.post('/:gameId/start', gameController.startGame);
+router.post('/cleanup', gameController.cleanupOrphanedPlayers);
 
 module.exports = router;
 

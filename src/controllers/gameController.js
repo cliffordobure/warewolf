@@ -4,6 +4,27 @@ const User = require('../models/User');
 const ApiResponse = require('../utils/response');
 const { assignRoles, checkGameEnd, PHASES } = require('../utils/gameLogic');
 
+// Utility function to clean up orphaned GamePlayer records
+const cleanupOrphanedPlayers = async (userId) => {
+  try {
+    const orphanedPlayers = await GamePlayer.find({ user_id: userId })
+      .populate('game_id');
+    
+    const playersToDelete = orphanedPlayers.filter(player => 
+      !player.game_id || player.game_id.phase === PHASES.ENDED
+    );
+    
+    if (playersToDelete.length > 0) {
+      await GamePlayer.deleteMany({
+        _id: { $in: playersToDelete.map(p => p._id) }
+      });
+      console.log(`Cleaned up ${playersToDelete.length} orphaned player records for user ${userId}`);
+    }
+  } catch (error) {
+    console.error('Error cleaning up orphaned players:', error);
+  }
+};
+
 // Get list of games
 exports.getGames = async (req, res, next) => {
   try {
@@ -79,7 +100,10 @@ exports.createGame = async (req, res, next) => {
       );
     }
 
-    // Check if user is already in a game
+    // Clean up any orphaned player records first
+    await cleanupOrphanedPlayers(req.userId);
+    
+    // Check if user is already in an active game
     const existingPlayer = await GamePlayer.findOne({ user_id: req.userId })
       .populate('game_id');
     
@@ -236,7 +260,10 @@ exports.joinGame = async (req, res, next) => {
       return ApiResponse.error(res, 'Already in this game', 'ALREADY_JOINED', 400);
     }
 
-    // Check if user is in another game
+    // Clean up any orphaned player records first
+    await cleanupOrphanedPlayers(req.userId);
+    
+    // Check if user is in another active game
     const otherGamePlayer = await GamePlayer.findOne({ user_id: req.userId })
       .populate('game_id');
     
@@ -313,7 +340,7 @@ exports.leaveGame = async (req, res, next) => {
     }
 
     // Find and remove player
-    const gamePlayer = await GamePlayer.findOneAndDelete({
+    const gamePlayer = await GamePlayer.findOne({
       game_id: gameId,
       user_id: req.userId
     });
@@ -321,6 +348,9 @@ exports.leaveGame = async (req, res, next) => {
     if (!gamePlayer) {
       return ApiResponse.error(res, 'Not in this game', 'NOT_IN_GAME', 400);
     }
+
+    // Delete the player record
+    await GamePlayer.deleteOne({ _id: gamePlayer._id });
 
     // Update game player count
     game.current_players -= 1;
@@ -420,6 +450,21 @@ exports.startGame = async (req, res, next) => {
       res,
       { game: gameResponse },
       'Game started successfully'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Clean up orphaned player records (utility endpoint)
+exports.cleanupOrphanedPlayers = async (req, res, next) => {
+  try {
+    await cleanupOrphanedPlayers(req.userId);
+    
+    return ApiResponse.success(
+      res,
+      null,
+      'Orphaned player records cleaned up successfully'
     );
   } catch (error) {
     next(error);
