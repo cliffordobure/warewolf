@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Game = require('../models/Game');
 const GamePlayer = require('../models/GamePlayer');
 const User = require('../models/User');
@@ -51,33 +52,39 @@ exports.getGames = async (req, res, next) => {
 
     const total = await Game.countDocuments(filter);
 
-    const gamesWithHost = games.map(game => ({
-      id: game._id,
-      name: game.name,
-      host: {
-        id: game.host_id._id,
-        username: game.host_id.username,
-        avatar_url: game.host_id.avatar_url
-      },
-      current_players: game.current_players,
-      max_players: game.max_players,
-      phase: game.phase,
-      is_started: game.is_started,
-      is_private: game.is_private,
-      created_at: game.created_at
+    // Get players for each game
+    const gamesWithPlayers = await Promise.all(games.map(async (game) => {
+      const players = await GamePlayer.find({ game_id: game._id })
+        .populate('user_id', 'username avatar_url');
+
+      return {
+        id: game._id,
+        name: game.name,
+        host_id: game.host_id._id,
+        players: players.map(player => ({
+          id: player._id,
+          user_id: player.user_id._id,
+          username: player.user_id.username,
+          role: player.role,
+          is_alive: player.is_alive,
+          is_host: player.is_host,
+          votes: player.votes,
+          has_voted: player.has_voted
+        })),
+        current_players: game.current_players,
+        max_players: game.max_players,
+        phase: game.phase,
+        current_round: game.current_round,
+        is_started: game.is_started,
+        is_private: game.is_private,
+        password: game.password,
+        created_at: game.created_at
+      };
     }));
 
-    return ApiResponse.paginated(
+    return ApiResponse.success(
       res,
-      gamesWithHost,
-      {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit),
-        has_next: page * limit < total,
-        has_prev: page > 1
-      },
+      { games: gamesWithPlayers },
       'Games retrieved successfully'
     );
   } catch (error) {
@@ -323,6 +330,11 @@ exports.leaveGame = async (req, res, next) => {
   try {
     const { gameId } = req.params;
 
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(gameId)) {
+      return ApiResponse.error(res, 'Invalid game ID format', 'INVALID_GAME_ID', 400);
+    }
+
     const game = await Game.findById(gameId);
     
     if (!game) {
@@ -465,6 +477,60 @@ exports.cleanupOrphanedPlayers = async (req, res, next) => {
       res,
       null,
       'Orphaned player records cleaned up successfully'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Leave all games (force cleanup)
+exports.leaveAllGames = async (req, res, next) => {
+  try {
+    const userId = req.userId;
+    
+    // Find all GamePlayer records for this user
+    const playerRecords = await GamePlayer.find({ user_id: userId })
+      .populate('game_id');
+    
+    let leftCount = 0;
+    
+    // Remove user from all games
+    for (const playerRecord of playerRecords) {
+      if (playerRecord.game_id) {
+        const game = playerRecord.game_id;
+        
+        // Update game player count
+        game.current_players -= 1;
+        
+        // If no players left, delete the game
+        if (game.current_players <= 0) {
+          await Game.findByIdAndDelete(game._id);
+        } else {
+          // If host left, assign new host
+          if (playerRecord.is_host) {
+            const newHost = await GamePlayer.findOne({ 
+              game_id: game._id,
+              _id: { $ne: playerRecord._id }
+            });
+            if (newHost) {
+              newHost.is_host = true;
+              await newHost.save();
+              game.host_id = newHost.user_id;
+            }
+          }
+          await game.save();
+        }
+      }
+      
+      // Delete the player record
+      await GamePlayer.deleteOne({ _id: playerRecord._id });
+      leftCount++;
+    }
+    
+    return ApiResponse.success(
+      res,
+      { left_count: leftCount },
+      `Left ${leftCount} games successfully`
     );
   } catch (error) {
     next(error);

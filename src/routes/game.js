@@ -44,6 +44,7 @@ router.post('/:gameId/join', joinGameValidation, validate, gameController.joinGa
 router.post('/:gameId/leave', gameController.leaveGame);
 router.post('/:gameId/start', gameController.startGame);
 router.post('/cleanup', gameController.cleanupOrphanedPlayers);
+router.post('/leave-all', gameController.leaveAllGames);
 
 module.exports = router;
 
