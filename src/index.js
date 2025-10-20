@@ -9,11 +9,12 @@ const initializeSocket = require('./socket');
 const errorHandler = require('./middleware/errorHandler');
 
 // Import routes  
-const authRoutes = require('./routes/auth');
+const authRoutes = require('./routes/auth'); 
 const userRoutes = require('./routes/user');
 const gameRoutes = require('./routes/game');
 const shopRoutes = require('./routes/shop');
 const paymentRoutes = require('./routes/payment');
+const subscriptionRoutes = require('./routes/subscription');
 
 // Initialize Express app
 const app = express();
@@ -23,7 +24,7 @@ const server = http.createServer(app);
 connectDB();
 
 // Initialize Socket.IO
-const io = initializeSocket(server);
+const io = initializeSocket(server); 
 
 // Make io accessible in routes
 app.set('io', io);
@@ -52,6 +53,10 @@ const limiter = rateLimit({
 });
 
 app.use('/api/', limiter);
+
+// Webhook routes (MUST be before body parser to get raw body for signature verification)
+const webhookRoutes = require('./routes/webhook');
+app.use('/api/v1/webhooks', express.raw({ type: 'application/json' }), webhookRoutes);
 
 // Body parser middleware
 app.use(express.json());
@@ -94,6 +99,7 @@ app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/games', gameRoutes);
 app.use('/api/v1/shop', shopRoutes);
 app.use('/api/v1/payment', paymentRoutes);
+app.use('/api/v1/subscriptions', subscriptionRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
